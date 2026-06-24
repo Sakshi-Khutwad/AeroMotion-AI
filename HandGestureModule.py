@@ -4,22 +4,23 @@ import pyautogui as pag
 from math import hypot
 import time
 import numpy as np
-import screen_brightness_control as sbc
-import pygetwindow as pgw
+import PlatformUtils as platform_utils
 
 
 def is_browser_open():
+    if window is None:
+        return False
 
     for player in media_players:
-        if window is not None:
-            if player in window.title:
-                return False
+        if player in window.title:
+            return False
 
     for browser in browsers:
-        if window is not None:
-            print(window.title)
-            if browser in window.title:
-                return True
+        print(window.title)
+        if browser in window.title:
+            return True
+
+    return False
 
 
 def is_thumb_down():
@@ -87,11 +88,11 @@ def volume_control(index_x, index_y, thumb_x, thumb_y):
 
     if length > 80:
         msg = "Increasing Volume"
-        pag.press("volumeup")
+        platform_utils.volume_up()
         time.sleep(0.1)
     else:
         msg = "Decreasing Volume"
-        pag.press("volumedown")
+        platform_utils.volume_down()
         time.sleep(0.1)
 
 
@@ -115,7 +116,7 @@ def brightness_control(little_x, little_y, thumb_x, thumb_y):
 
     try:
         msg = "Setting Brightness"
-        sbc.set_brightness(int(bright))
+        platform_utils.set_brightness(int(bright))
         time.sleep(0.1)
     except Exception as ex:
         print(f"Error in Brightness Control: {ex}")
@@ -155,11 +156,13 @@ right_bottom_miniplayer_right = (miniplayer_height, miniplayer_width)
 
 
 # Media Players
-media_players = ["Media Player", "VLC media player", "YouTube", "Plex", "RealPlayer", "GOM Media Player",
-                 "ACG Player", "Winamp", "PowerDVD", "iTunes", "Spotify"]
+media_players = ["Media Player", "VLC", "VLC media player", "VLC Media Player", "YouTube", "Plex", "RealPlayer",
+                 "GOM Media Player", "ACG Player", "Winamp", "PowerDVD", "iTunes", "Music", "QuickTime Player",
+                 "Spotify"]
 
 # Browsers
-browsers = ["- Brave", "- Google Chrome", "Opera", "- Microsoft​ Edge", "— Mozilla Firefox"]
+browsers = ["- Brave", "Brave Browser", "- Google Chrome", "Google Chrome", "Safari", "Opera", "- Microsoft​ Edge",
+            "Microsoft Edge", "— Mozilla Firefox", "Mozilla Firefox", "Firefox"]
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, screen_width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, screen_height)
@@ -181,7 +184,7 @@ while cap.isOpened():
     except Exception as e:
         print(f"Error: {e}")
 
-    window = pgw.getActiveWindow()
+    window = platform_utils.get_active_window()
     msg = " "
     img_flip = cv2.flip(img, 1)
     img = detector.find_hands(img_flip)
@@ -229,13 +232,11 @@ while cap.isOpened():
                             #     pag.hotkey('shift', 'right')
                             if "Media Player" in window_title:
                                 msg = "Skip Forward 30 Seconds"
-                                pag.hotkey('ctrl', 'right')
-                            elif "VLC Media Player" in window_title:
+                            elif "VLC" in window_title:
                                 msg = "Skip Forward 10 Seconds"
-                                pag.hotkey('alt', 'right')
                             else:
                                 msg = "Skip Forward"
-                                pag.press('right')
+                            platform_utils.media_seek_forward(window_title)
                             time.sleep(1)
 
                     # rewind
@@ -247,13 +248,11 @@ while cap.isOpened():
                             #     pag.hotkey('shift', 'left')
                             if "Media Player" in window_title:
                                 msg = "Skip Backward 30 Seconds"
-                                pag.hotkey('ctrl', 'left')
-                            elif "VLC Media Player" in window_title:
+                            elif "VLC" in window_title:
                                 msg = "Skip Backward 10 Seconds"
-                                pag.hotkey('alt', 'left')
                             else:
                                 msg = "Skip Backward"
-                                pag.press('left')
+                            platform_utils.media_seek_backward(window_title)
                             time.sleep(1)
 
             if is_browser_open():
@@ -266,14 +265,14 @@ while cap.isOpened():
                     if is_left_thumb_open:
                         # print("Next")
                         msg = "Moving to Next Page"
-                        pag.hotkey('alt', 'right')
+                        platform_utils.browser_forward()
                         time.sleep(1)
 
                     # previous
                     elif is_left_thumb_pointing_left:
                         # print("Previous")
                         msg = "Moving to Previous Page"
-                        pag.hotkey('alt', 'left')
+                        platform_utils.browser_back()
                         time.sleep(1)
 
             # Open desktop
@@ -282,7 +281,7 @@ while cap.isOpened():
             if thumb_down == [1, 1, 1, 1, 1]:
                 # print("Thumb's Down")
                 msg = "Opening Desktop"
-                pag.hotkey('win', 'd')
+                platform_utils.show_desktop()
                 time.sleep(2)
 
             # print("Left hand in left rectangle")
@@ -304,7 +303,7 @@ while cap.isOpened():
 
             if finger[1] == 1 and finger[2] == 1 and finger[0] == 0 and finger[3] == 0 and finger[4] == 0:
                 msg = "Capturing Screenshot"
-                pag.press('printscreen')
+                platform_utils.screenshot()
                 time.sleep(3)
 
             # print("Right hand in right rectangle")

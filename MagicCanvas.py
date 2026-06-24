@@ -6,7 +6,6 @@ from HandTrackingModule import HandDetector, fingers
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import PhotoImage
-import customtkinter as ctk
 
 
 # https://stackoverflow.com/questions/31836104/pyinstaller-and-onefile-how-to-include-an-image-in-the-exe-file
@@ -21,124 +20,87 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def load_ordered_images(folder_path):
+    def sort_key(file_name):
+        file_root, _ = os.path.splitext(file_name)
+        return int(file_root) if file_root.isdigit() else file_name.lower()
+
+    ordered_files = sorted(os.listdir(folder_path), key=sort_key)
+    images = []
+
+    for file_name in ordered_files:
+        image = cv2.imread(os.path.join(folder_path, file_name))
+        if image is not None:
+            images.append(image)
+
+    return images
+
+
 class ImageHolder:
     def __init__(self, img_path):
         self.img = PhotoImage(file=img_path)
 
 
+dialog_root = None
+
+
+def get_dialog_root():
+    global dialog_root
+
+    if dialog_root is None or not dialog_root.winfo_exists():
+        dialog_root = tk.Tk()
+        dialog_root.withdraw()
+
+    return dialog_root
+
+
 def take_user_input():
-    def cancel_button_pressed():
-        nonlocal user_input
-        user_input = ''
-        # print(user_input)
-        text_root.destroy()
+    user_input = ""
+    prompt_width, prompt_height = 760, 260
 
-    def add_button_pressed():
-        nonlocal user_text_entry, user_input
-        user_input = user_text_entry.get()
-        text_root.destroy()
+    while True:
+        prompt = np.zeros((prompt_height, prompt_width, 3), np.uint8)
+        prompt[:] = (255, 20, 159)
 
-    # root
-    text_root = ctk.CTk()
-    text_root.config(bg='#FF149F')
+        cv2.putText(prompt, "Enter text", (35, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (52, 52, 52), 3)
+        cv2.rectangle(prompt, (35, 95), (prompt_width - 35, 155), (249, 212, 118), 3)
+        cv2.rectangle(prompt, (38, 98), (prompt_width - 38, 152), (35, 176, 231), -1)
+        cv2.putText(prompt, user_input[-35:], (55, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(prompt, "Enter: add   Esc: cancel   Backspace: delete",
+                    (35, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
 
-    text_root.overrideredirect(True)
+        cv2.imshow("Magic Canvas", prompt)
+        key = cv2.waitKeyEx(30)
 
-    text_root_width = 400
-    text_root_height = 230
-    text_root_x = int((screen_width / 2) - (text_root_width / 2))
-    text_root_y = int((screen_height / 2) - (text_root_height / 2))
-
-    text_root.geometry(f'{text_root_width}x{text_root_height}+{text_root_x}+{text_root_y}')
-
-    # variables
-    user_text_entry = ctk.StringVar()
-    user_input = ''
-
-    # Components
-    text_label = ctk.CTkLabel(
-        text_root,
-        text='Enter text',
-        text_color='#343434',
-        bg_color='#FF149F',
-        font=('Poppins', 24)
-    )
-
-    text_entry = ctk.CTkEntry(
-        text_root,
-        width=280,
-        corner_radius=10,
-        text_color='white',
-        fg_color='#E7B023',
-        bg_color='#FF149F',
-        font=('Poppins', 20),
-        border_width=3,
-        border_color='#F9D476',
-        textvariable=user_text_entry
-    )
-
-    cancel_button = ctk.CTkButton(
-        text_root,
-        width=90,
-        corner_radius=10,
-        fg_color='#FFDA7B',
-        text='CANCEL',
-        font=('Poppins Medium', 15),
-        text_color='black',
-        bg_color='#FF149F',
-        hover_color='#E7B023',
-        border_color='#F9D476',
-        border_width=3,
-        command=cancel_button_pressed
-    )
-
-    add_button = ctk.CTkButton(
-        text_root,
-        width=90,
-        corner_radius=10,
-        fg_color='#FFDA7B',
-        text='ADD',
-        font=('Poppins Medium', 15),
-        text_color='black',
-        bg_color='#FF149F',
-        hover_color='#E7B023',
-        border_color='#F9D476',
-        border_width=3,
-        command=add_button_pressed
-    )
-
-    # grid
-    text_root.columnconfigure((0, 1, 2, 3, 4, 5, 6, 7), weight=1)
-    text_root.rowconfigure((0, 1, 2, 3, 4, 6, 7), weight=1)
-    text_root.rowconfigure(5, weight=2)
-
-    # placing widgets
-    text_label.grid(row=1, column=1, sticky='ws')
-    text_entry.grid(row=2, column=1, rowspan=2, columnspan=6, sticky='nsew')
-    cancel_button.grid(row=5, column=0, columnspan=2, sticky='ne')
-    add_button.grid(row=5, column=3, columnspan=2, sticky='ne')
-
-    text_root.mainloop()
-
-    return user_input
+        if key in (10, 13):
+            return user_input.strip()
+        if key == 27:
+            return ''
+        if key in (8, 127):
+            user_input = user_input[:-1]
+        elif 32 <= key <= 126:
+            user_input += chr(key)
 
 
 def select_file():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main Tkinter window
+    root = get_dialog_root()
     file_path = filedialog.askopenfilename(title="Select File",
                                            filetypes=[("Image files", ".png;.jpg;*.jpeg"),
                                                       ("Text files", "*.txt"),
                                                       ("PDF files", "*.pdf"),
-                                                      ("All files", ".")])
-    root.destroy()  # Close the Tkinter window
+                                                      ("All files", "*.*")],
+                                           parent=root)
     return file_path
 
 
 # Save
 def save_canvas():
     global img_canvas
-    filename = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG files", "*.png")])
+    filename = filedialog.asksaveasfilename(
+        defaultextension=".png",
+        filetypes=[("PNG files", "*.png")],
+        parent=get_dialog_root()
+    )
     if filename:
         cv2.imwrite(filename, img_canvas)
         # print("Canvas saved as:", filename)
@@ -167,59 +129,33 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, screen_height)
 
 # Load header image
 folderPath = resource_path("assets/Header")
-mylist = os.listdir(folderPath)
-overLay = []
-
-
-for imPath in mylist:
-    image = cv2.imread(f'{folderPath}/{imPath}')
-    overLay.append(image)
+overLay = load_ordered_images(folderPath)
 
 header_colors = overLay[0]
 
 # Load Thickness image
 thickness_path = resource_path("assets/SideBar")
-mylist3 = os.listdir(thickness_path)
-
-Thick = []
-for imPath3 in mylist3:
-    image = cv2.imread(f'{thickness_path}/{imPath3}')
-    Thick.append(image)
+Thick = load_ordered_images(thickness_path)
 
 side_thickness = Thick[0]
 
 # Eraser and TextBox
 eraser_path = resource_path("assets/Eraser_Thickness")
-mylist4 = os.listdir(eraser_path)
-EraserLay = []
-
-for imPath4 in mylist4:
-    image = cv2.imread(f'{eraser_path}/{imPath4}')
-    EraserLay.append(image)
+EraserLay = load_ordered_images(eraser_path)
 
 side_eraser = EraserLay[0]
 
 # Shapes
 
 ShapesPath = resource_path("assets/Shapes")
-mylist2 = os.listdir(ShapesPath)
-
-Shapes = []
-for imPath2 in mylist2:
-    image = cv2.imread(f'{ShapesPath}/{imPath2}')
-    Shapes.append(image)
+Shapes = load_ordered_images(ShapesPath)
 
 header_shapes = Shapes[0]
 
 # Load Buttons
 
 ButtonsPath = resource_path("assets/Buttons")
-mylist3 = os.listdir(ButtonsPath)
-
-Buttons_lay = []
-for imPath3 in mylist3:
-    image = cv2.imread(f'{ButtonsPath}/{imPath3}')
-    Buttons_lay.append(image)
+Buttons_lay = load_ordered_images(ButtonsPath)
 
 # Set previous points of drawing
 
@@ -245,6 +181,7 @@ global first_x, first_y, next_x, next_y, center_x, center_y, first_rect_x, first
     next_rect_y, global_im
 
 userText = []
+text_box_ready = True
 cv2.namedWindow("Magic Canvas")
 
 while cap.isOpened():
@@ -272,6 +209,7 @@ while cap.isOpened():
         if finger == [0, 1, 1, 0, 0]:
 
             xp, yp = 0, 0
+            text_box_selected = index_x < 75 and 590 < index_y < 670
 
             # Checking Colors and Shapes Selection
             if index_y < 75:
@@ -325,14 +263,18 @@ while cap.isOpened():
                     header_colors = overLay[0]
                     side_thickness = Thick[0]
 
-                elif 590 < index_y < 670:               # Text box
+                elif 590 < index_y < 670 and text_box_ready:               # Text box
                     side_eraser = EraserLay[2]
+                    text_box_ready = False
                     user_text = str(take_user_input())
                     if user_text != '':
                         userText.append({'text': user_text, 'text_x': text_x, 'text_y': text_y})
                         cv2.putText(img_resized, userText[-1]['text'], (text_x, text_y), font, fontScale, draw_color, 2)
                         cv2.putText(img_canvas, userText[-1]['text'], (text_x, text_y), font, fontScale, draw_color, 2)
                         text_x, text_y = (text_x + 40), (text_y + 40)
+
+            if not text_box_selected:
+                text_box_ready = True
 
             # Checking for Button Selection
             if index_x > screen_width-100:

@@ -1,25 +1,72 @@
 from tkinter import *
 from customtkinter import *
-import subprocess
 from random import choice
 import pygame
 import pyautogui as pag
 from PIL import Image, ImageTk
 from datetime import datetime
+from multiprocessing import Process, freeze_support, set_start_method
 import os
+from pathlib import Path
 import sys
+import traceback
 
 
 # https://stackoverflow.com/questions/31836104/pyinstaller-and-onefile-how-to-include-an-image-in-the-exe-file
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
+
         base_path = sys._MEIPASS
+
     except Exception:
+
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
+
+
+def get_log_file():
+    return Path.home() / "Library" / "Logs" / "AeroMotionAI.log"
+
+
+def log_runtime_event(message):
+    try:
+        log_path = get_log_file()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"{datetime.now().isoformat()} {message}\n")
+    except Exception:
+        pass
+
+
+def launch_module(module_name):
+    log_runtime_event(f"Launching module: {module_name}")
+    process = Process(target=run_module, args=(module_name,))
+    process.start()
+    return process
+
+
+def run_module(module_name):
+    try:
+        log_runtime_event(f"Child process started for module: {module_name}")
+        if module_name == "virtual_mouse":
+            import VirtualMouse  # noqa: F401
+        elif module_name == "magic_canvas":
+            import MagicCanvas  # noqa: F401
+        elif module_name == "hand_gesture":
+            import HandGestureModule  # noqa: F401
+        else:
+            raise ValueError(f"Unknown module: {module_name}")
+    except Exception:
+        log_runtime_event(
+            f"Module startup failed for {module_name}:\n{traceback.format_exc()}"
+        )
+        raise
+
+
+def is_process_running(process):
+    return process is not None and process.is_alive()
 
 
 main_window = 0
@@ -151,15 +198,47 @@ def start_button_left(event):
         main_canvas.itemconfig(start_button, image=hg_start_button_image)
 
 
+def is_macos_accessibility_trusted():
+    if sys.platform != "darwin":
+        return True
+
+    try:
+        import Quartz
+        return Quartz.AXIsProcessTrusted()
+    except Exception as ex:
+        log_runtime_event(f"Accessibility trust check failed: {ex}")
+        return False
+
+
+def open_macos_accessibility_settings():
+    try:
+        import subprocess as _sp
+        _sp.Popen([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ])
+    except Exception as ex:
+        log_runtime_event(f"Failed to open Accessibility settings: {ex}")
+
+
 def start_button_pressed(event):
     global virtual_mouse, air_canvas, hand_gesture
 
     if current_page == 1:
-        virtual_mouse = subprocess.Popen(["python", "VirtualMouse.py"])
+        if not is_macos_accessibility_trusted():
+            answer = messagebox.askyesno(
+                "Accessibility Permission Required",
+                "AeroMotionAI needs Accessibility permission to control the mouse.\n\n"
+                "Open System Settings → Privacy & Security → Accessibility and add AeroMotionAI?"
+            )
+            if answer:
+                open_macos_accessibility_settings()
+            return
+        virtual_mouse = launch_module("virtual_mouse")
     elif current_page == 2:
-        air_canvas = subprocess.Popen(["python", "MagicCanvas.py"])
+        air_canvas = launch_module("magic_canvas")
     elif current_page == 3:
-        hand_gesture = subprocess.Popen(["python", "HandGestureModule.py"])
+        hand_gesture = launch_module("hand_gesture")
 
 
 # stop button functions
@@ -182,11 +261,11 @@ def stop_button_left(event):
 
 
 def stop_button_pressed(event):
-    if current_page == 1 and virtual_mouse is not None:
+    if current_page == 1 and is_process_running(virtual_mouse):
         virtual_mouse.terminate()
-    elif current_page == 2 and air_canvas is not None:
+    elif current_page == 2 and is_process_running(air_canvas):
         air_canvas.terminate()
-    elif current_page == 3 and hand_gesture is not None:
+    elif current_page == 3 and is_process_running(hand_gesture):
         hand_gesture.terminate()
 
 
@@ -477,15 +556,12 @@ def help_button_pressed(event):
 
 # closing function
 def on_close():
-    if virtual_mouse is not None:
-        if virtual_mouse.poll() is None:
-            virtual_mouse.terminate()
-    elif air_canvas is not None:
-        if air_canvas.poll() is None:
-            air_canvas.terminate()
-    elif hand_gesture is not None:
-        if hand_gesture.poll() is None:
-            hand_gesture.terminate()
+    if is_process_running(virtual_mouse):
+        virtual_mouse.terminate()
+    elif is_process_running(air_canvas):
+        air_canvas.terminate()
+    elif is_process_running(hand_gesture):
+        hand_gesture.terminate()
     main_window.destroy()
 
 
@@ -512,7 +588,13 @@ def main_screen():
     main_window = CTk()
 
     main_window.title('AeroMotion')
-    main_window.iconbitmap(resource_path('assets/main-screen-commons/logo-24.ico'))
+
+    import platform
+
+    if platform.system() == "Windows":
+        main_window.iconbitmap(
+            resource_path('assets/main-screen-commons/logo-24.ico')
+        )
 
     main_window.resizable(False, True)
 
@@ -741,44 +823,75 @@ def main_screen():
     main_window.mainloop()
 
 
-splash = Tk()
+if __name__ == "__main__":
+    freeze_support()
+    if sys.platform == "darwin":
+        try:
+            set_start_method("spawn")
+            log_runtime_event("Multiprocessing start method set to spawn")
+        except RuntimeError:
+            log_runtime_event("Multiprocessing start method already configured")
 
-# fullscreen window with no title bar
-splash.attributes('-fullscreen', True)
+        # Check Accessibility permissions (required for pyautogui mouse/keyboard)
+        try:
+            import Quartz
+            trusted = Quartz.AXIsProcessTrusted()
+            if not trusted:
+                log_runtime_event("Accessibility permission not granted — prompting user")
+                import subprocess as _sp
+                _sp.Popen([
+                    "osascript", "-e",
+                    'display dialog "AeroMotionAI needs Accessibility permission for '
+                    'mouse & keyboard control.\\n\\nPlease add this app in:\\n'
+                    'System Settings → Privacy & Security → Accessibility\\n\\n'
+                    'Then relaunch the app." buttons {"Open Settings", "Continue Anyway"} '
+                    'default button "Open Settings"',
+                    "-e",
+                    'if button returned of result is "Open Settings" then '
+                    'do shell script "open x-apple.systempreferences:'
+                    'com.apple.preference.security?Privacy_Accessibility"',
+                ])
+        except Exception as ex:
+            log_runtime_event(f"Accessibility check failed: {ex}")
 
-screen_width, screen_height = pag.size()
+    splash = Tk()
 
-# canvas
-splash_canvas = Canvas(splash, width=screen_width, height=screen_height)
-splash_canvas.pack(fill='both', expand=True)
+    # fullscreen window with no title bar
+    splash.attributes('-fullscreen', True)
 
-# adding background image
-background_image = Image.open(resource_path('assets/splash-screen/splash-white.png'))
-background_image_resized = background_image.resize((screen_width, screen_height), Image.NEAREST)
-background_image_resized = ImageTk.PhotoImage(background_image_resized)
-splash_canvas.create_image(0, 0, image=background_image_resized, anchor='nw')
+    screen_width, screen_height = pag.size()
 
-# aeromotion text
-text_x = (screen_width / 2.7)
-text_y = (screen_height / 2.3)
-app_name = PhotoImage(file=resource_path('assets/splash-screen/app_name.png'))
-splash_canvas.create_image(
-    text_x, text_y,
-    image=app_name,
-    anchor='nw'
-)
+    # canvas
+    splash_canvas = Canvas(splash, width=screen_width, height=screen_height)
+    splash_canvas.pack(fill='both', expand=True)
 
-# adding logo image
-logo_image = PhotoImage(file=resource_path('assets/splash-screen/logo-280.png'))
-logo_x = (screen_width / 2.9)
-logo_y = (screen_height / 3.1)
-splash_canvas.create_image(logo_x, logo_y, image=logo_image, anchor='ne')
+    # adding background image
+    background_image = Image.open(resource_path('assets/splash-screen/splash-white.png'))
+    background_image_resized = background_image.resize((screen_width, screen_height), Image.NEAREST)
+    background_image_resized = ImageTk.PhotoImage(background_image_resized)
+    splash_canvas.create_image(0, 0, image=background_image_resized, anchor='nw')
 
-# Splash screen music
-pygame.mixer.init()
-pygame.mixer.music.load(resource_path("assets/splash-screen/splash-screen-sound.mp3"))
-pygame.mixer.music.play()
+    # aeromotion text
+    text_x = (screen_width / 2.7)
+    text_y = (screen_height / 2.3)
+    app_name = PhotoImage(file=resource_path('assets/splash-screen/app_name.png'))
+    splash_canvas.create_image(
+        text_x, text_y,
+        image=app_name,
+        anchor='nw'
+    )
 
-splash.after(4000, main_screen)
+    # adding logo image
+    logo_image = PhotoImage(file=resource_path('assets/splash-screen/logo-280.png'))
+    logo_x = (screen_width / 2.9)
+    logo_y = (screen_height / 3.1)
+    splash_canvas.create_image(logo_x, logo_y, image=logo_image, anchor='ne')
 
-mainloop()
+    # Splash screen music
+    pygame.mixer.init()
+    pygame.mixer.music.load(resource_path("assets/splash-screen/splash-screen-sound.mp3"))
+    pygame.mixer.music.play()
+
+    splash.after(4000, main_screen)
+
+    mainloop()

@@ -6,6 +6,7 @@ from HandTrackingModule import HandDetector, fingers
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import PhotoImage
+from CameraUtils import open_camera
 
 
 # https://stackoverflow.com/questions/31836104/pyinstaller-and-onefile-how-to-include-an-image-in-the-exe-file
@@ -118,14 +119,25 @@ def calculate_distance(a1, b1, a2, b2):
     return int(np.sqrt((a2 - a1) ** 2 + (b2 - b1) ** 2))
 
 
+def should_exit(window_name):
+    if cv2.waitKey(1) & 0xFF == 27:
+        return True
+
+    try:
+        return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
+    except cv2.error:
+        return True
+
+
 # Create black canvas
 screen_width, screen_height = pag.size()
 img_canvas = np.zeros((screen_height, screen_width, 3), np.uint8)
 
-# Set size of Video captured image
-cap = cv2.VideoCapture(0, cv2.CAP_ANY)
+# Detect and open camera (supports external webcams)
+cap = open_camera("Magic Canvas", backend=cv2.CAP_ANY)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, screen_width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, screen_height)
+
 
 # Load header image
 folderPath = resource_path("assets/Header")
@@ -182,7 +194,6 @@ global first_x, first_y, next_x, next_y, center_x, center_y, first_rect_x, first
 
 userText = []
 text_box_ready = True
-cv2.namedWindow("Magic Canvas")
 
 while cap.isOpened():
     try:
@@ -468,7 +479,7 @@ while cap.isOpened():
     cv2.imshow("Canvas", img_canvas)
     cv2.imshow("Magic Canvas", img_overlay)
 
-    if cv2.waitKey(1) & 0xFF == 27 or cv2.getWindowProperty("Magic Canvas", cv2.WND_PROP_VISIBLE) < 1:
+    if should_exit("Magic Canvas"):
         break
 
 cap.release()

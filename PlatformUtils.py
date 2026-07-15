@@ -1,9 +1,12 @@
+import ctypes
+import ctypes.util
 import platform
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import pyautogui as pag
-import screen_brightness_control as sbc
 
 
 SYSTEM = platform.system()
@@ -90,7 +93,22 @@ def show_desktop():
 
 
 def screenshot():
-    hotkey("command", "shift", "3") if IS_MAC else pag.press("printscreen")
+    if IS_MAC:
+        # Use screencapture CLI — works without Accessibility permissions
+        # even when launched from Finder as a .app bundle.
+        desktop = Path.home() / "Desktop"
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+        filepath = desktop / f"Screenshot_{timestamp}.png"
+        try:
+            subprocess.run(
+                ["screencapture", "-x", str(filepath)],
+                check=True,
+                capture_output=True,
+            )
+        except Exception as ex:
+            print(f"screencapture failed: {ex}")
+    else:
+        pag.press("printscreen")
 
 
 def volume_up():
@@ -153,47 +171,42 @@ def media_seek_backward(window_title):
 def set_brightness(value):
     brightness = max(0, min(100, int(value)))
 
+    if IS_MAC:
+        return _set_macos_brightness_coredisplay(brightness)
+
+    # Windows / Linux: use screen_brightness_control
     try:
+        import screen_brightness_control as sbc
         sbc.set_brightness(brightness)
         return True
     except Exception as ex:
         print(f"screen_brightness_control failed: {ex}")
 
-    if IS_MAC:
-        return _set_macos_brightness_with_osascript(brightness)
-
     return False
 
 
-def _set_macos_brightness_with_osascript(target):
-    try:
-        current = sbc.get_brightness(display=0)
-        current = current[0] if isinstance(current, list) else current
-    except Exception:
-        current = 50
+def _set_macos_brightness_coredisplay(target_percent):
+    """Set brightness using the CoreDisplay private framework.
 
-    key_code = 144 if target > current else 145
-    steps = max(1, min(16, abs(target - int(current)) // 6))
+    Works on macOS without Accessibility permissions.
+    Accepts a percentage value (0-100) and converts to 0.0-1.0 range.
+    """
     try:
-        subprocess.run(
-            [
-                "osascript",
-                "-e",
-                'tell application "System Events"',
-                "-e",
-                f"repeat {steps} times",
-                "-e",
-                f"key code {key_code}",
-                "-e",
-                "end repeat",
-                "-e",
-                "end tell",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        lib_path = ctypes.util.find_library("CoreDisplay")
+        if not lib_path:
+            print("CoreDisplay library not found")
+            return False
+
+        CoreDisplay = ctypes.CDLL(lib_path)
+        CoreDisplay.CoreDisplay_Display_SetUserBrightness.argtypes = [
+            ctypes.c_int,
+            ctypes.c_double,
+        ]
+        CoreDisplay.CoreDisplay_Display_SetUserBrightness.restype = None
+
+        level = max(0.0, min(1.0, target_percent / 100.0))
+        CoreDisplay.CoreDisplay_Display_SetUserBrightness(0, level)
         return True
     except Exception as ex:
-        print(f"macOS brightness fallback failed: {ex}")
+        print(f"CoreDisplay brightness failed: {ex}")
         return False

@@ -4,7 +4,9 @@ import pyautogui as pag
 from math import hypot
 import time
 import numpy as np
+import sys
 import PlatformUtils as platform_utils
+from CameraUtils import open_camera
 
 
 def is_browser_open():
@@ -122,7 +124,18 @@ def brightness_control(little_x, little_y, thumb_x, thumb_y):
         print(f"Error in Brightness Control: {ex}")
 
 
-cap = cv2.VideoCapture(0)
+def should_exit(window_name):
+    if cv2.waitKey(1) & 0xFF == 27:
+        return True
+
+    try:
+        return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
+    except cv2.error:
+        return True
+
+
+# Detect and open camera (supports external webcams)
+cap = open_camera("Gesture Sync")
 detector = HandDetector(detection_confidence=0.85)
 
 screen_width, screen_height = pag.size()
@@ -171,7 +184,6 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, screen_height)
 # print(screen_width_division)
 
 pag.FAILSAFE = False
-cv2.namedWindow("Gesture Sync")
 
 img = None
 
@@ -331,7 +343,7 @@ while cap.isOpened():
     cv2.imshow("Gesture Sync", img_resized)
     # cv2.imshow("Gesture Sync", miniplayer_size)
 
-    if cv2.waitKey(1) & 0xFF == 27 or cv2.getWindowProperty("Gesture Sync", cv2.WND_PROP_VISIBLE) < 1:
+    if should_exit("Gesture Sync"):
         break
 
 cap.release()
